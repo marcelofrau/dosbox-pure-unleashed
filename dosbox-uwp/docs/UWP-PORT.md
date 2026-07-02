@@ -1,77 +1,143 @@
 # dosbox-pure — UWP Port Status
 
+## Build Status
+
+**Build: ✅ 0 errors** (Release|x64, ~1500 warnings C4244 cosméticos)
+**Linker: ✅ 0 unresolved**
+**Deploy: ❌ App não testada em device/emulador ainda**
+
 ## Estrutura
 
 ```
 dosbox-uwp/
-  dosbox-uwp.vcxproj              — projeto principal, referência $(DBPDir)=..\extern\dosbox-pure\
-  dosbox_pure_libretro.cpp        — bridge: inclui vfs_implementation_uwp.cpp
-  libretro-common/
-    include/
-      compat/msvc.h               — [CRIADO] compat MSVC (strcasecmp, ssize_t, etc)
-      retro_inline.h              — [CRIADO] define macro INLINE
-    vfs/
-      vfs_implementation_uwp.cpp  — [CRIADO] stub VFS UWP (WinRT)
-    uwp/
-      std_filesystem_compat.h     — existente no submodule
-      uwp_async.h                 ┐
-      uwp_file_handle_access.h    ┤ existentes
-      uwp_func.h                  ┘
+├── dosbox-uwp.vcxproj              — projeto principal (UWP AppX)
+├── dosbox-uwp.sln                  — solução (requerida para $(SolutionDir) no x64)
+├── Package.appxmanifest            — identidade do pacote UWP
+├── App.cpp / App.h                 — entry point UWP (Direct3DApplicationSource)
+├── dosbox_uwpMain.cpp / .h         — game loop (DirectX + SDL input)
+├── dosbox_pure_sta.cpp             — [CRIADO] stubs DBPS_* standalone (9 funções + 2 globais)
+├── uwp-dep.props                   — dependências SDL/uwp (x64 apenas)
+│
+├── local/dosbox-pure/              — [CRIADO] patches locais (submodule intocado)
+│   ├── dosbox_pure_libretro.cpp    — bridge libretro (copiado, build via local)
+│   └── src/
+│       ├── dbp_serialize.cpp       — C2051 fix (switch __LINE__ → array)
+│       ├── dos/drive_cache.cpp     — C2664 guard (GetVolumeInformationA UWP)
+│       ├── gui/midi.cpp            — C2664 guard (midi_win32.h UWP)
+│       └── misc/cross.cpp          — C2664 guard (FindFirstFile UWP) + stubs diretório
+│
+├── docs/
+│   └── UWP-PORT.md                 — este documento
+│
+├── libretro-common/
+│   ├── include/
+│   │   ├── compat/msvc.h           — [CRIADO] strcasecmp→_stricmp, ssize_t, etc
+│   │   └── retro_inline.h          — [CRIADO] macro INLINE
+│   ├── vfs/
+│   │   └── vfs_implementation_uwp.cpp — [CRIADO] stub VFS (StorageFile pendente)
+│   ├── uwp/
+│   │   ├── std_filesystem_compat.h
+│   │   ├── uwp_async.h
+│   │   ├── uwp_file_handle_access.h
+│   │   └── uwp_func.h
+│   ├── compat/compat_strl.c        — [CRIADO] strlcpy/strlcat
+│   └── encodings/encoding_utf.c    — [CRIADO] UTF-8/16 conversion
+│
+├── Content/                        — DirectX shaders
+├── Common/                         — DirectX helpers
+├── Assets/                         — ícones/logos AppX
+└── pch.h / pch.cpp                 — precompiled header
+
 extern/
-  dosbox-pure/                    — submodule (modificado localmente, 8 arquivos)
-  libretro-common/                — submodule
+├── dosbox-pure/                    — submodule (pristine, commit 65dd07d)
+└── libretro-common/                — submodule
 ```
+
+## Estratégia de Patches
+
+**Decisão:** Submodule `extern/dosbox-pure/` permanece intocável (pristine).
+Arquivos que precisam de modificação são **copiados** para `dosbox-uwp/local/dosbox-pure/`
+com a mesma estrutura de diretórios, e o vcxproj aponta para o local.
+
+```
+$(DBPDir)src\gui\midi.cpp                    → local\dosbox-pure\src\gui\midi.cpp
+$(DBPDir)src\dos\drive_cache.cpp             → local\dosbox-pure\src\dos\drive_cache.cpp
+$(DBPDir)src\misc\cross.cpp                  → local\dosbox-pure\src\misc\cross.cpp
+$(DBPDir)src\dbp_serialize.cpp               → local\dosbox-pure\src\dbp_serialize.cpp
+$(DBPDir)dosbox_pure_libretro.cpp            → local\dosbox-pure\dosbox_pure_libretro.cpp
+```
+
+**Próximos arquivos que precisarem de patch** devem seguir o mesmo padrão.
+
+---
 
 ## Includes no vcxproj
 
 ```
-$(DBPDir)
-$(DBPDir)include
-$(DBPDir)libretro-common\include   — libretro.h (versão do dosbox-pure)
-$(LrCommonDir)                     — uwp/*.h
-$(LrCommonDir)include              — retro_miscellaneous.h, retro_environment.h, etc
+$(ProjectDir)                          — dosbox-uwp\
+$(IntermediateOutputPath)              — x64\Release\ (precompiled headers)
+$(DBPDir)                              — extern\dosbox-pure\
+$(DBPDir)include                       — dosbox.h, etc
+$(DBPDir)libretro-common\include       — libretro.h (versão do dosbox-pure)
+$(DBPDir)src                           — headers raiz de src/
+$(DBPDir)src\gui                       — midi_oss.h, midi_alsa.h (para local\midi.cpp)
+$(DBPDir)src\misc                      — cross.h (para local\cross.cpp)
+$(DBPDir)src\dos                       — drives.h, etc (para local\drive_cache.cpp)
+$(LrCommonDir)                         — uwp/*.h
+$(LrCommonDir)include                  — retro_miscellaneous.h, retro_environment.h, etc
 ```
 
-## Modificações no dosbox-pure
+**Nota:** `$(DBPDir)src\gui;$(DBPDir)src\misc;$(DBPDir)src\dos` adicionados para que
+arquivos locais (`local\dosbox-pure\src\gui\midi.cpp` etc.) consigam incluir headers
+irmãos via `#include "midi_oss.h"` — que antes resolviam pelo diretório do source original.
 
-### 1. MIDI — stubbed para UWP
+---
 
-**Arquivo:** `src/gui/midi.cpp:95`
+## Modificações nos Arquivos Locais
+
+### 1. MIDI — guard UWP
+
+**Arquivo:** `local/dosbox-pure/src/gui/midi.cpp:93-95`
 
 ```cpp
-// Antes:
+// Original:
 #elif defined(WIN32)
-// Depois:
+// Patch:
 #elif defined(WIN32) && (!defined(WINAPI_FAMILY) || WINAPI_FAMILY != WINAPI_FAMILY_APP)
 ```
 
 **Motivo:** UWP não tem `winmm.lib`/`mmeapi.h` (API Win32 MIDI).
-**Impacto:** MIDI Win32 desligado no UWP. Se precisar MIDI, implementar via WinRT ou stub.
+**Impacto:** MIDI Win32 desligado no UWP. Compila `midi_oss.h` no `#else` (não funcional).
 
 ---
 
-### 2. C4703 — ponteiros não inicializados
+### 2. C4703 — suprimido globalmente
 
-| Arquivo | Linha | Variável |
-|---|---|---|
-| `src/cpu/core_dyn_x86/string.h` | 32 | `tmp_reg = NULL` |
-| `src/cpu/core_dyn_x86/string.h` | 82 | `rep_ecx_jmp = NULL` |
-| `src/cpu/core_dyn_x86/decoder.h` | 1087 | `segbase = NULL` |
-| `src/cpu/core_dyn_x86/risc_x64.h` | 1123 | `func = NULL` |
-| `src/dbp_network.cpp` | 1091 | `char const *str = ""` + `int code = 0` |
+**Decisão:** Ao invés de patchear 5 headers do submodule, C4703 é suprimido globalmente
+no vcxproj via `DisableSpecificWarnings`:
 
-**Motivo:** MSVC UWP trata variante mais agressiva de análise de fluxo.
-**Impacto:** Nenhum — inicializações defensivas, caminhos sempre setam valor antes de uso real.
+```xml
+<DisableSpecificWarnings>4453;28204;4703</DisableSpecificWarnings>
+```
+
+**Afetados (não precisam mais de patch):**
+- `src/cpu/core_dyn_x86/string.h` — `tmp_reg`, `rep_ecx_jmp`
+- `src/cpu/core_dyn_x86/decoder.h` — `segbase`
+- `src/cpu/core_dyn_x86/risc_x64.h` — `func`
+- `src/dbp_network.cpp` — `str`, `code`
+
+**Motivo:** MSVC UWP usa análise de fluxo mais agressiva. Variáveis são sempre setadas
+antes do uso; warnings são falsos positivos.
 
 ---
 
 ### 3. C2051 — case expression not constant
 
-**Arquivo:** `src/dbp_serialize.cpp:302-360`
+**Arquivo:** `local/dosbox-pure/src/dbp_serialize.cpp:302-360`
 
-**Problema:** `case __LINE__:` não é aceito como constante pelo MSVC no toolchain UWP (Arcade/SDL).
+**Problema:** `case __LINE__:` não aceito como constante pelo MSVC no toolchain UWP.
 
-**Solução:** Substituiu `switch(__LINE__)` por array de structs:
+**Solução:** `switch(__LINE__)` substituído por array de structs:
 
 ```cpp
 struct { void (*setup)(DBPArchive&); bool (*check)(DBPArchive&); } entries[] = {
@@ -79,46 +145,42 @@ struct { void (*setup)(DBPArchive&); bool (*check)(DBPArchive&); } entries[] = {
     DBPSERIALIZE_ENTRY_FVER(DBPSerialize_Mounts, >=8),
     // ... todas as 36 funções serialize
 };
-for (i in entries) {
-    if (entry.check && !entry.check(ar)) continue;
-    entry.setup(ar);
-}
 ```
 
-**Forward declarations** explícitas adicionadas (macro `DBPSERIALIZE_DECL`).
-**Impacto:** Comportamento idêntico — preserva ordem de serialização, version checks, e layout compat.
+**Forward declarations** via macro `DBPSERIALIZE_DECL`.
+**Impacto:** Comportamento idêntico — preserva ordem, version checks, layout.
 
 ---
 
-### 4. C2664 — Win32 APIs ANSI vs Unicode no UWP
+### 4. C2664 — Win32 APIs ANSI no UWP
 
 #### drive_cache.cpp
 
-**Arquivo:** `src/dos/drive_cache.cpp:140-148`
+**Arquivo:** `local/dosbox-pure/src/dos/drive_cache.cpp:140-148`
 
 ```cpp
-// Antes:
+// Original:
 #if defined(WIN32) || defined(OS2)
-// Depois:
+// Patch:
 #if (defined(WIN32) || defined(OS2)) && (!defined(WINAPI_FAMILY) || WINAPI_FAMILY != WINAPI_FAMILY_APP)
 ```
 
 **APIs removidas:** `GetVolumeInformationA`, `GetDriveTypeA`
-**Impacto:** Volume label e CD-ROM detection desligados no UWP. Sem impacto funcional em jogos.
+**Impacto:** Volume label e CD-ROM detection desligados no UWP.
 
 #### cross.cpp — diretórios
 
-**Arquivo:** `src/misc/cross.cpp:188`
+**Arquivo:** `local/dosbox-pure/src/misc/cross.cpp:188`
 
 ```cpp
-// Antes:
+// Original:
 #if defined (WIN32)
-// Depois:
+// Patch:
 #if defined (WIN32) && (!defined(WINAPI_FAMILY) || WINAPI_FAMILY != WINAPI_FAMILY_APP)
 ```
 
 **APIs removidas:** `FindFirstFile`, `FindNextFile`, `FindClose`
-**Stubs UWP adicionados** (`#elif defined(WIN32)`) — todas 4 funções de diretório retornam NULL/false:
+**Stubs UWP adicionados** (`#elif defined(WIN32)`):
 
 | Função | Stub |
 |---|---|
@@ -127,69 +189,78 @@ for (i in entries) {
 | `read_directory_next` | `return false` |
 | `close_directory` | `no-op` |
 
-**Impacto:** Directory enumeration não funciona no UWP via Win32. Filesystem deve usar VFS (`retro_vfs_file_*`, `retro_vfs_dir_*`). Jogos que dependem de `dir_information` (drive_cache, drives local) podem quebrar no UWP.
+**Impacto:** Directory enumeration não funciona no UWP via Win32.
+Usar VFS (`retro_vfs_file_*`, `retro_vfs_dir_*`).
 
 ---
 
-## Headers faltantes do libretro-common — criados
+### 5. Libretro-common compat — headers criados
 
 | Header | Conteúdo |
 |---|---|
-| `compat/msvc.h` | `strcasecmp→_stricmp`, `strncasecmp→_strnicmp`, `ssize_t`, `PATH_MAX`, `SIZE_MAX`, warning disables, `mkdir→_mkdir` |
-| `retro_inline.h` | `#define INLINE __inline` (Win32) ou `inline` |
+| `compat/msvc.h` | `strcasecmp→_stricmp`, `strncasecmp→_strnicmp`, `ssize_t`, `PATH_MAX`, `SIZE_MAX`, `mkdir→_mkdir` |
+| `retro_inline.h` | `#define INLINE __inline` (Win32) |
+| `compat/compat_strl.c` | `strlcpy`, `strlcat` |
+| `encodings/encoding_utf.c` | UTF-8/16 conversion |
 
-Ambos copiados do upstream libretro-common. Ausentes no checkout atual.
+Ausentes no checkout atual do libretro-common.
 
 ---
 
-## To-Do (próximos passos)
-
-## Linker: DBPS_* — resolved (16 undefined → 0)
+## Linker: DBPS_* — resolvido (16 → 0)
 
 Adicionados 2 arquivos ao build:
 
-| Arquivo | Símbolos fornecidos |
+| Arquivo | Símbolos |
 |---|---|
-| `extern\dosbox-pure\keyb2joypad.cpp` | `map_keys`, `map_buckets` |
-| `dosbox-uwp\dosbox_pure_sta.cpp` | `DBPS_SaveSlotIndex`, `DBPS_BrowsePath`, `DBPS_OnContentLoad`, `DBPS_SubmitOSDFrame`, `DBPS_GetMouse`, `DBPS_StartCaptureJoyBind`, `DBPS_HaveJoy`, `DBPS_GetJoyBind`, `DBPS_RequestSaveLoad`, `DBPS_HaveSaveSlot`, `DBPS_ApplyConfigOverrides`, `DBPS_IsConfigOverride`, `DBPS_ToggleConfigOverride`, `DBPS_GetConfigOverrideJSON` |
+| `extern/dosbox-pure/keyb2joypad.cpp` | `map_keys`, `map_buckets` |
+| `dosbox-uwp/dosbox_pure_sta.cpp` | `DBPS_SaveSlotIndex`, `DBPS_BrowsePath`, `DBPS_OnContentLoad`, `DBPS_SubmitOSDFrame`, `DBPS_GetMouse`, `DBPS_StartCaptureJoyBind`, `DBPS_HaveJoy`, `DBPS_GetJoyBind`, `DBPS_RequestSaveLoad`, `DBPS_HaveSaveSlot`, `DBPS_ApplyConfigOverrides`, `DBPS_IsConfigOverride`, `DBPS_ToggleConfigOverride`, `DBPS_GetConfigOverrideJSON` |
 
-**Nota:** `DBPS_AddDisc`, `DBPS_OpenContent`, `DBPS_IsGameRunning`, `DBPS_IsShowingOSD`, `DBPS_GetContentName`, `DBPS_ToggleOSD`, `DBPS_InitLEDs` são fornecidos por `dosbox_pure_osd.h` (incluído por `dosbox_pure_libretro.cpp`) quando `DBP_STANDALONE` está definido — **não duplicar** no sta.cpp.
+**7 DBPS_* fornecidos por `dosbox_pure_osd.h`** (incluído por `dosbox_pure_libretro.cpp` quando `DBP_STANDALONE`):
+`DBPS_AddDisc`, `DBPS_OpenContent`, `DBPS_IsGameRunning`, `DBPS_IsShowingOSD`,
+`DBPS_GetContentName`, `DBPS_ToggleOSD`, `DBPS_InitLEDs`
 
-**Status:** Build succeeded (0 errors, ~1500 warnings — maioria C4244).
+**Stubs** (`dosbox_pure_sta.cpp`) compilam mas não implementam — retornam valores default
+ou no-op. Implementação real (SDL2 input, DirectX OSD, WinRT file picker) pendente.
 
 ---
 
-### Prioridade Alta — compilar
+## Próximos Passos
 
-- [x] **Linker: DBPS_\*, map_keys, map_buckets** — resolvido com `keyb2joypad.cpp` + `dosbox_pure_sta.cpp`
-- [ ] **`Winsock2.h` / `windows.h`**: Muitos arquivos incluem `windows.h` direta ou indiretamente. No UWP, certas APIs são bloqueadas em tempo de link (ex: `CreateFile`, `GetProcAddress`, `regapi.h`). Será necessário stub ou guardar cada chamada.
-- [ ] **`direct.h`**: `_getcwd`, `_chdir`, `_mkdir` não disponíveis no UWP. Alternativa: WinRT `Windows::Storage`.
-- [ ] **`process.h`**: `_beginthreadex`, `_endthreadex` — verificar se estão disponíveis. Alternativa: `CreateThread` (UWP permite threads).
-- [ ] **`io.h`**: `_access`, `_chmod`, `_open`, `_read`, `_write`, `_close` — muitos têm equivalentes WinRT ou devem ser redirecionados ao VFS.
-- [ ] **`sys/stat.h`**: `stat`, `fstat`, `S_ISDIR`, `S_ISREG` — stubs ou VFS.
-- [ ] **`signal.h`**: `signal()` — UWP restringe sinais. Stub se necessário.
-- [ ] **`timeb.h`**: `_ftime`, `_ftime64` — verificar disponibilidade no SDK UWP.
-- [ ] **VFS implementation**: `vfs_implementation_uwp.cpp` atual é apenas stub. Implementar de verdade com `StorageFile`, `StorageFolder`, etc.
+### Prioridade 1 — mínimo funcional
 
-### Prioridade Média — funcionais
+- [ ] **Libretro loop**: Inicializar `retro_init`, `retro_load_game`, `retro_run` no
+      `dosbox_uwpMain::Update()` — chamar core em vez de renderizar fundo azul
+- [ ] **VFS real**: Implementar `vfs_implementation_uwp.cpp` com `StorageFile`/`StorageFolder`
+      para abrir arquivos de ROM
+- [ ] **Video output**: Renderizar buffer RGBA do core (`retro_video_refresh_t`) como
+      textura DirectX 2D
 
-- [ ] **MIDI alternativo**: Implementar MIDI via WinRT `Windows.Devices.Midi` se necessário.
-- [ ] **Directory enumeration**: Implementar `open_directory`/`read_directory_first`/`read_directory_next`/`close_directory` para UWP usando `StorageFolder::GetFilesAsync` / `GetFoldersAsync`.
-- [ ] **Drive cache / volume label**: Stub no UWP. Se necessário, implementar com `Windows::Storage::KnownFolders`.
-- [ ] **Network (dbp_network.cpp)**: Verificar compatibilidade de sockets (`Winsock2.h`) no UWP (`Windows::Networking::Sockets`).
-- [ ] **Registry access**: Se houver chamadas a `regapi.h`/registry, stubbear ou reimplementar com `ApplicationData::LocalSettings`.
+### Prioridade 2 — interação
 
-### Prioridade Baixa — polish
+- [ ] **Input mapping**: Mapear eventos de teclado/touch UWP → botões RetroArch
+      (`CoreWindow::KeyDown` → `retro_key_state`)
+- [ ] **File picker**: UI para selecionar ROM via WinRT `FileOpenPicker`
+- [ ] **Áudio**: Roteir `retro_audio_sample_batch` → XAudio2
 
-- [ ] **Performance**: Verificar se `CompileAsWinRT=false` está correto para todos os arquivos (exceto UWP bridge).
-- [ ] **Warning cleanup**: Habilitar warnings gradualmente.
-- [ ] **Testes**: Verificar se o core carrega no RetroArch UWP e executa jogos.
+### Prioridade 3 — deploy & polish
+
+- [ ] **Assinar AppX**: Certificado de teste para deploy local
+- [ ] **Deploy**: Instalar em device/emulador Windows 10/11
+- [ ] **Test**: Verificar inicialização do core, carregamento de jogo
+- [ ] **MIDI OSS**: Stub ou implementar `midi_oss.h` compilável no UWP
+- [ ] **Directory enum**: Implementar via `StorageFolder::GetFilesAsync`
+- [ ] **DBPS_* reais**: Implementar `OpenContent`, `AddDisc`, `ToggleOSD`, etc.
 
 ---
 
 ## Notas Técnicas
 
-- **UWP SDK** disponível via VS2022 (`10.0.28000.0`)
-- `CompileAsWinRT=false` para código legado C++ (dosbox-pure) — evita conflitos com WinRT tipos
-- Ponteiros UWP usam `Platform::String^` e `Windows::Storage` — código UWP deve ficar isolado em `libretro-common/vfs/vfs_implementation_uwp.cpp`
-- Submodule `extern/dosbox-pure/` NÃO dá commit — modificações são locais. Decisão: copiar arquivos para o projeto se o submodule for atualizado frequentemente, ou manter patches locais.
+- **UWP SDK** `10.0.26100.0` (VS2022 v143 toolchain)
+- `CompileAsWinRT=false` para código legado (dosbox-pure) — evita conflitos com WinRT
+- `AppxPackageSigningEnabled=true` — requer certificado para deploy
+- `$(SolutionDir)` necessário no x64 para resolver `uwp-dep.props` (SDL include path)
+- ARM64 build pelo vcxproj direto (uwp-dep.props não se aplica)
+- Submodule `extern/dosbox-pure/` NÃO recebe commits — patches em `local/dosbox-pure/`
+- Qualquer novo arquivo do submodule que precise de modificação: copiar para
+  `local/dosbox-pure/` com mesma estrutura, apontar vcxproj

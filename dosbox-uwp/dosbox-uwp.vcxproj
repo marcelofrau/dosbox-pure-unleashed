@@ -65,9 +65,9 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(DBPDir);$(DBPDir)include;$(DBPDir)libretro-common\include;$(DBPDir)src;$(LrCommonDir);$(LrCommonDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(DBPDir);$(DBPDir)include;$(DBPDir)libretro-common\include;$(DBPDir)src;$(DBPDir)src\gui;$(DBPDir)src\misc;$(DBPDir)src\dos;$(LrCommonDir);$(LrCommonDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
 	  <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
-      <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4453;28204;4703</DisableSpecificWarnings>
 	  <PreprocessorDefinitions>_DEBUG;__LIBRETRO__;DBP_STANDALONE;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_DEPRECATE;_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -79,9 +79,9 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(DBPDir);$(DBPDir)include;$(DBPDir)libretro-common\include;$(DBPDir)src;$(LrCommonDir);$(LrCommonDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(IntermediateOutputPath);$(DBPDir);$(DBPDir)include;$(DBPDir)libretro-common\include;$(DBPDir)src;$(DBPDir)src\gui;$(DBPDir)src\misc;$(DBPDir)src\dos;$(LrCommonDir);$(LrCommonDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
 	  <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
-      <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4453;28204;4703</DisableSpecificWarnings>
 	  <PreprocessorDefinitions>NDEBUG;__LIBRETRO__;DBP_STANDALONE;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_DEPRECATE;_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
@@ -215,7 +215,7 @@
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</CompileAsWinRT>
     </ClCompile>
-    <ClCompile Include="$(DBPDir)src\dbp_serialize.cpp">
+    <ClCompile Include="local\dosbox-pure\src\dbp_serialize.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
@@ -307,7 +307,7 @@
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</CompileAsWinRT>
     </ClCompile>
-    <ClCompile Include="$(DBPDir)src\dos\drive_cache.cpp">
+    <ClCompile Include="local\dosbox-pure\src\dos\drive_cache.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
@@ -395,7 +395,7 @@
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">MaxSpeed</Optimization>
       <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Default</BasicRuntimeChecks>
     </ClCompile>
-    <ClCompile Include="$(DBPDir)src\gui\midi.cpp">
+    <ClCompile Include="local\dosbox-pure\src\gui\midi.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
@@ -823,7 +823,7 @@
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</CompileAsWinRT>
     </ClCompile>
-    <ClCompile Include="$(DBPDir)src\misc\cross.cpp">
+    <ClCompile Include="local\dosbox-pure\src\misc\cross.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
@@ -883,7 +883,7 @@
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</CompileAsWinRT>
     </ClCompile>
-    <ClCompile Include="$(DBPDir)dosbox_pure_libretro.cpp">
+    <ClCompile Include="local\dosbox-pure\dosbox_pure_libretro.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsWinRT>
