@@ -1,0 +1,4 @@
+[submodule "extern/uwp-dep"]
+	path = extern/uwp-dep
+	url = https://github.com/worleydl/uwp-dep
+	branch = basic_essential
