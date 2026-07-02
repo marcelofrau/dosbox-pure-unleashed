@@ -2,3 +2,6 @@
 	path = extern/uwp-dep
 	url = https://github.com/worleydl/uwp-dep
 	branch = basic_essential
+[submodule "extern/dosbox-pure"]
+	path = extern/dosbox-pure
+	url = https://github.com/schellingb/dosbox-pure
