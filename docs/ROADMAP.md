@@ -18,7 +18,7 @@ Implementation phases, ordered by dependency. Each phase produces a runnable (or
 ---
 
 ## Phase 1 — Core Integration (Build)
-**Goal: dosbox-pure core compila como parte do projeto UWP**
+**Status: ✅ DONE**
 
 ### 1.1 — Add submodules
 - [ ] `git submodule add https://github.com/schellingb/dosbox-pure extern/dosbox-pure`
@@ -36,7 +36,8 @@ Implementation phases, ordered by dependency. Each phase produces a runnable (or
 - [ ] `drives.cpp` / `drive_local.cpp`: acesso a arquivos (substituir por VFS calls)
 - [ ] `midi.cpp`: MIDI output (opcional, pode desabilitar)
 - [ ] `joystick.cpp`: desabilitar, vamos usar SDL → libretro input
-- [ ] Configurar plataforma UWP (x64, ARM64) nos builds
+- [ ] Configurar plataforma UWP (x64 apenas — ARM64, ARM, x86 NÃO suportados)
+  - Xbox Series é x64, outras arquiteturas não são alvo
 
 ### 1.4 — VFS stub
 - [ ] Copiar `vfs_implementation_uwp.cpp` do RetroArch
@@ -52,60 +53,70 @@ Implementation phases, ordered by dependency. Each phase produces a runnable (or
 
 ## Phase 2 — Libretro Frontend Stub
 **Goal: App UWP inicializa o core, chama retro_init(), retro_load_game()**
+**Status: ✅ DONE**
 
 ### 2.1 — Libretro environment callbacks
-- [ ] Implementar `retro_environment()` handler:
+- [x] Implementar `retro_environment()` handler:
   - `GET_VFS_INTERFACE` → nossa VFS
   - `GET_VARIABLE` / `SET_VARIABLE` → config stubs
   - `GET_SYSTEM_DIRECTORY` / `GET_SAVE_DIRECTORY` → `LocalFolder`
   - `GET_PREFERRED_HW_RENDER` → retornar false (força SW render)
   - Demais: retornar default (false)
+  - `SET_HW_RENDER` → retornar 0 (rejeitar HW)
+  - `SET_KEYBOARD_CALLBACK` → push held keys
+  - `GET_THROTTLE_STATE` → NONE
+  - `SET_MESSAGE_EXT` → log via OutputDebugStringA
 
 ### 2.2 — Core lifecycle
-- [ ] `retro_init()`
-- [ ] `retro_set_environment()`, `retro_set_video_refresh()`, etc.
-- [ ] `retro_load_game(const struct retro_game_info*)` — carregar ROM
-- [ ] `retro_get_system_av_info()` → obter geometry/timing
+- [x] `retro_init()`
+- [x] `retro_set_environment()`, `retro_set_video_refresh()`, etc.
+- [x] `retro_load_game(const struct retro_game_info*)` — carregar ROM
+- [x] `retro_get_system_av_info()` → obter geometry/timing
 
 ### 2.3 — First smoke test
-- [ ] App chama `retro_init()` → `retro_load_game()` no startup
-- [ ] Nenhum frame ainda, só verificar se core carrega sem crash
-- [ ] Log de diagnóstico via OutputDebugString
+- [x] App chama `retro_init()` → `retro_load_game()` no startup
+- [x] Frame renderizado na tela (DOSBox core visível)
+- [x] Log de diagnóstico via OutputDebugString
 
 ---
 
 ## Phase 3 — Video Pipeline
 **Goal: Ver DOS rodando na tela (mesmo que sem áudio ou input)**
+**Status: ✅ DONE**
 
 ### 3.1 — SW framebuffer renderer
-- [ ] Callback `retro_video_refresh_cb(data, width, height, pitch)`
-- [ ] Criar `ID3D11Texture2D` (formato `DXGI_FORMAT_B8G8R8A8_UNORM`, `D3D11_USAGE_DYNAMIC`)
-- [ ] Copiar pixels do framebuffer para a texture via `Map()/Unmap()`
-- [ ] Render quad fullscreen com a textura (vertex shader + pixel shader simples)
-- [ ] Manter aspect ratio (letterboxing)
+- [x] Callback `retro_video_refresh_cb(data, width, height, pitch)`
+- [x] Criar `ID2D1Bitmap1` (formato `DXGI_FORMAT_B8G8R8A8_UNORM`, `D2D1_ALPHA_MODE_IGNORE`)
+- [x] Copiar pixels do framebuffer para bitmap via memcpy
+- [x] Render quad fullscreen com a textura (DrawBitmap com letterbox)
+- [x] Manter aspect ratio (letterboxing)
 
 ### 3.2 — Render loop
-- [ ] `Update()` chama `retro_run()`
-- [ ] `Render()` exibe framebuffer
-- [ ] FPS vsync controlado pelo StepTimer
+- [x] `Update()` chama `retro_run()`
+- [x] `Render()` exibe framebuffer (via D2D, não Direct3D)
+- [x] FPS vsync controlado pelo StepTimer
 
 ### 3.3 — Verify
-- [ ] Carregar ROM DOS (.zip com .exe dentro)
-- [ ] Ver boot do DOS na tela
+- [x] Carregar ROM DOS (.dosz com .exe dentro)
+- [x] Ver boot do DOS na tela
 - [ ] Medir FPS baseline
 
 ---
 
 ## Phase 4 — Input
 **Goal: Jogar com gamepad e teclado**
+**Status: 🏗️ IN PROGRESS**
 
 ### 4.1 — SDL → Libretro input mapping
-- [ ] `retro_input_poll()`: ler estado atual do SdlInput
-- [ ] `retro_input_state(port, device, index, id)`:
-  - `RETRO_DEVICE_JOYPAD`: mapear botões SDL → libretro (A→B, B→A, Start, Select, D-Pad)
-  - `RETRO_DEVICE_ANALOG`: thumbsticks esquerdo/direito
-  - `RETRO_DEVICE_KEYBOARD`: teclado SDL → libretro key codes
-  - `RETRO_DEVICE_MOUSE`: mouse/touch
+- [x] `retro_input_poll()`: ler estado atual (função vazia, estados globais)
+- [x] `retro_input_state(port, device, index, id)`:
+  - `RETRO_DEVICE_KEYBOARD`: teclado UWP → libretro key codes (parcial)
+  - `RETRO_DEVICE_JOYPAD`: mapeado do keyboard state global (função vazia, depende do key mapping)
+  - `RETRO_DEVICE_MOUSE`: stub (retorna 0)
+  - `RETRO_DEVICE_POINTER`: stub (retorna 0)
+- [ ] `RETRO_DEVICE_ANALOG`: thumbsticks (não implementado)
+- [ ] `RETRO_DEVICE_JOYPAD`: botões SDL gamepad → libretro (não implementado)
+- [ ] Keyboard mapping completo: F1-F12, numpad, etc.
 
 ### 4.2 — Test
 - [ ] Navegar menus do DOS (se houver)
@@ -115,12 +126,12 @@ Implementation phases, ordered by dependency. Each phase produces a runnable (or
 
 ## Phase 5 — Audio
 **Goal: Som saindo corretamente**
+**Status: ⏸️ BLOCKED (SDL audio roda mas sem saída UWP)**
 
 ### 5.1 — Libretro → SDL audio bridge
-- [ ] `retro_audio_sample_batch(samples, frames)`: recebe PCM do core
-- [ ] Buffer circular interno
-- [ ] `SDL_QueueAudio()` para playback
-- [ ] Taxa de amostragem: 44100 ou 48000 (negociar com core via `RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO`)
+- [x] `retro_audio_sample_batch(samples, frames)`: recebe PCM do core
+- [x] Buffer via `std::vector` com mutex
+- [ ] Roteir para `SDL_QueueAudio()` (atualmente o buffer é coletado mas não enviado ao SDL)
 
 ### 5.2 — Test
 - [ ] Áudio do DOS (PC speaker, AdLib, Sound Blaster)
@@ -160,7 +171,7 @@ Implementation phases, ordered by dependency. Each phase produces a runnable (or
 - [ ] Shader de CRT/scanlines (opcional)
 
 ### 7.3 — UX
-- [ ] Tela de seleção de ROM (file picker ou pasta)
+- [x] Tela de seleção de ROM (file picker via F1)
 - [ ] Splash screen / loading state
 - [ ] Savestate thumbnails
 
@@ -180,23 +191,23 @@ Implementation phases, ordered by dependency. Each phase produces a runnable (or
 ## Dependencies Between Phases
 
 ```
-Phase 0 (scaffold) ───────────────────── done
+Phase 0 (scaffold) ───────────────────── ✅ done
     │
     ▼
-Phase 1 (core compila) ─── VFS stub ───── 2-3 dias
+Phase 1 (core compila) ─── VFS stub ───── ✅ done
     │
     ▼
-Phase 2 (frontend stub) ────────────────── 1-2 dias
+Phase 2 (frontend stub) ────────────────── ✅ done
     │
-    ├────► Phase 3 (video) ─────────────── 2-3 dias
+    ├────► Phase 3 (video) ─────────────── ✅ done
     │
-    ├────► Phase 4 (input) ─────────────── 1 dia
+    ├────► Phase 4 (input) ─────────────── 🏗️ in progress
     │
-    ├────► Phase 5 (audio) ─────────────── 1-2 dias
+    ├────► Phase 5 (audio) ─────────────── ⏸️ blocked
     │
-    ├────► Phase 6 (config/saves) ───────── 2-3 dias
+    ├────► Phase 6 (config/saves) ───────── ⏳ todo
     │
-    └────► Phase 7 (deploy) ─────────────── 2-3 dias
+    └────► Phase 7 (deploy) ─────────────── ⏳ todo
 ```
 
 Fase 3, 4, 5 podem ser paralelizadas após a fase 2.

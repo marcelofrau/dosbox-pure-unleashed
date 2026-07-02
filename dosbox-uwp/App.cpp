@@ -38,8 +38,8 @@ App::App() :
 // The first method called when the IFrameworkView is being created.
 void App::Initialize(CoreApplicationView^ applicationView)
 {
-	// Register event handlers for app lifecycle. This example includes Activated, so that we
-	// can make the CoreWindow active and start rendering on the window.
+	OutputDebugStringA("[dosbox-uwp] App::Initialize\n");
+
 	applicationView->Activated +=
 		ref new TypedEventHandler<CoreApplicationView^, IActivatedEventArgs^>(this, &App::OnActivated);
 
@@ -49,14 +49,15 @@ void App::Initialize(CoreApplicationView^ applicationView)
 	CoreApplication::Resuming +=
 		ref new EventHandler<Platform::Object^>(this, &App::OnResuming);
 
-	// At this point we have access to the device. 
-	// We can create the device-dependent resources.
 	m_deviceResources = std::make_shared<DX::DeviceResources>();
+	OutputDebugStringA("[dosbox-uwp] App::Initialize done\n");
 }
 
 // Called when the CoreWindow object is created (or re-created).
 void App::SetWindow(CoreWindow^ window)
 {
+	OutputDebugStringA("[dosbox-uwp] App::SetWindow\n");
+
 	window->SizeChanged += 
 		ref new TypedEventHandler<CoreWindow^, WindowSizeChangedEventArgs^>(this, &App::OnWindowSizeChanged);
 
@@ -84,20 +85,25 @@ void App::SetWindow(CoreWindow^ window)
 		ref new TypedEventHandler<DisplayInformation^, Object^>(this, &App::OnDisplayContentsInvalidated);
 
 	m_deviceResources->SetWindow(window);
+	OutputDebugStringA("[dosbox-uwp] App::SetWindow done\n");
 }
 
 // Initializes scene resources, or loads a previously saved app state.
 void App::Load(Platform::String^ entryPoint)
 {
+	OutputDebugStringA("[dosbox-uwp] App::Load\n");
 	if (m_main == nullptr)
 	{
 		m_main = std::unique_ptr<dosbox_uwpMain>(new dosbox_uwpMain(m_deviceResources));
 	}
+	OutputDebugStringA("[dosbox-uwp] App::Load done\n");
 }
 
 // This method is called after the window becomes active.
 void App::Run()
 {
+	OutputDebugStringA("[dosbox-uwp] App::Run enter\n");
+
 	while (!m_windowClosed)
 	{
 		if (m_windowVisible)
@@ -116,6 +122,8 @@ void App::Run()
 			CoreWindow::GetForCurrentThread()->Dispatcher->ProcessEvents(CoreProcessEventsOption::ProcessOneAndAllPending);
 		}
 	}
+
+	OutputDebugStringA("[dosbox-uwp] App::Run exit\n");
 }
 
 // Required for IFrameworkView.
@@ -180,7 +188,63 @@ void App::OnWindowClosed(CoreWindow^ sender, CoreWindowEventArgs^ args)
 
 void App::OnKeyDown(CoreWindow^ sender, KeyEventArgs^ args)
 {
-	m_main->OnKeyEvent(args->VirtualKey, true);
+	auto key = args->VirtualKey;
+
+	if (key == VirtualKey::F1)
+	{
+		args->Handled = true;
+
+		auto picker = ref new Windows::Storage::Pickers::FileOpenPicker();
+		picker->ViewMode = Windows::Storage::Pickers::PickerViewMode::List;
+		picker->FileTypeFilter->Append(".zip");
+		picker->FileTypeFilter->Append(".dosz");
+		picker->FileTypeFilter->Append(".exe");
+		picker->FileTypeFilter->Append(".com");
+		picker->FileTypeFilter->Append(".bat");
+		picker->FileTypeFilter->Append(".iso");
+		picker->FileTypeFilter->Append(".chd");
+		picker->FileTypeFilter->Append(".cue");
+		picker->FileTypeFilter->Append(".img");
+		picker->FileTypeFilter->Append(".ima");
+		picker->FileTypeFilter->Append(".vhd");
+		picker->FileTypeFilter->Append(".conf");
+
+		create_task(picker->PickSingleFileAsync()).then([this](Windows::Storage::StorageFile^ file)
+		{
+			if (file != nullptr)
+			{
+				char buf[512];
+				int len = WideCharToMultiByte(CP_UTF8, 0, file->Path->Data(), -1, nullptr, 0, nullptr, nullptr);
+				std::string pathUtf8(len, '\0');
+				WideCharToMultiByte(CP_UTF8, 0, file->Path->Data(), -1, &pathUtf8[0], len, nullptr, nullptr);
+				sprintf_s(buf, "[dosbox-uwp] F1 picked file: %s\n", pathUtf8.c_str());
+				OutputDebugStringA(buf);
+
+				std::wstring path = file->Path->Data();
+				create_task(Windows::Storage::FileIO::ReadBufferAsync(file)).then([this, path](Windows::Storage::Streams::IBuffer^ buffer)
+				{
+					if (buffer != nullptr && buffer->Length > 0)
+					{
+						auto dataReader = Windows::Storage::Streams::DataReader::FromBuffer(buffer);
+						std::vector<uint8_t> romData(buffer->Length);
+						dataReader->ReadBytes(Platform::ArrayReference<uint8_t>(romData.data(), (unsigned)buffer->Length));
+						m_main->LoadRom(path, std::move(romData));
+					}
+					else
+					{
+						OutputDebugStringA("[dosbox-uwp] F1 file read failed or empty\n");
+					}
+				});
+			}
+			else
+			{
+				OutputDebugStringA("[dosbox-uwp] F1 picker cancelled\n");
+			}
+		});
+		return;
+	}
+
+	m_main->OnKeyEvent(key, true);
 }
 
 void App::OnKeyUp(CoreWindow^ sender, KeyEventArgs^ args)

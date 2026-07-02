@@ -4,7 +4,7 @@
 
 **Build: ✅ 0 errors** (Release|x64, ~1500 warnings C4244 cosméticos)
 **Linker: ✅ 0 unresolved**
-**Deploy: ❌ App não testada em device/emulador ainda**
+**Deploy: ✅ Renderiza na tela via VS2022 (Windows 11, x64). ❌ Xbox Series não testado ainda.**
 
 ## Estrutura
 
@@ -13,10 +13,17 @@ dosbox-uwp/
 ├── dosbox-uwp.vcxproj              — projeto principal (UWP AppX)
 ├── dosbox-uwp.sln                  — solução (requerida para $(SolutionDir) no x64)
 ├── Package.appxmanifest            — identidade do pacote UWP
-├── App.cpp / App.h                 — entry point UWP (Direct3DApplicationSource)
-├── dosbox_uwpMain.cpp / .h         — game loop (DirectX + SDL input)
+├── App.cpp / App.h                 — entry point UWP, picker F1, async load
+├── dosbox_uwpMain.cpp / .h         — game loop, core lifecycle, input routing
 ├── dosbox_pure_sta.cpp             — [CRIADO] stubs DBPS_* standalone (9 funções + 2 globais)
 ├── uwp-dep.props                   — dependências SDL/uwp (x64 apenas)
+│
+├── Content/
+│   ├── RetroCore.cpp / .h          — [NOVO] bridge libretro completa (init, load, run, callbacks, VFS)
+│   ├── RetroScreenRenderer.cpp / .h— [NOVO] render D2D com letterbox, BeginDraw/EndDraw
+│   ├── SdlInput.h/cpp              — gamepad + audio via SDL
+│   ├── Sample3DSceneRenderer.*     — fallback 3D (usado quando sem ROM)
+│   └── SampleFpsTextRenderer.*     — overlay debug
 │
 ├── local/dosbox-pure/              — [CRIADO] patches locais (submodule intocado)
 │   ├── dosbox_pure_libretro.cpp    — bridge libretro (copiado, build via local)
@@ -227,40 +234,101 @@ ou no-op. Implementação real (SDL2 input, DirectX OSD, WinRT file picker) pend
 
 ## Próximos Passos
 
-### Prioridade 1 — mínimo funcional
+### Prioridade 1 — áudio + estabilidade
 
-- [ ] **Libretro loop**: Inicializar `retro_init`, `retro_load_game`, `retro_run` no
-      `dosbox_uwpMain::Update()` — chamar core em vez de renderizar fundo azul
-- [ ] **VFS real**: Implementar `vfs_implementation_uwp.cpp` com `StorageFile`/`StorageFolder`
-      para abrir arquivos de ROM
-- [ ] **Video output**: Renderizar buffer RGBA do core (`retro_video_refresh_t`) como
-      textura DirectX 2D
+- [ ] **Áudio**: Roteir `retro_audio_sample_batch` → XAudio2 (atualmente SDL QueueAudio, mas sem fone)
+- [ ] **Async loading UX**: Mostrar status de carregamento (spinner/texto) enquanto ROM é lida e
+      processada (demora ~0.5-2s)
+- [ ] **Keyboard mapping completo**: Mapear todas as teclas UWP → scancodes libretro (atualmente só
+      alfanumérico + ENTER/ESC/BACK/TAB/SHIFT/CTRL/ALT/SETAS)
 
-### Prioridade 2 — interação
+### Prioridade 2 — features
 
-- [ ] **Input mapping**: Mapear eventos de teclado/touch UWP → botões RetroArch
-      (`CoreWindow::KeyDown` → `retro_key_state`)
-- [ ] **File picker**: UI para selecionar ROM via WinRT `FileOpenPicker`
-- [ ] **Áudio**: Roteir `retro_audio_sample_batch` → XAudio2
+- [ ] **Input mapping**: Mapear botões SDL gamepad → libretro `RETRO_DEVICE_JOYPAD`
+- [ ] **DBPS_* reais**: Implementar `OpenContent`, `AddDisc`, `ToggleOSD`, `SaveSlot` etc.
+- [ ] **MIDI OSS**: Stub ou implementar `midi_oss.h` compilável no UWP
+- [ ] **Directory enum**: Implementar via `StorageFolder::GetFilesAsync`
 
 ### Prioridade 3 — deploy & polish
 
-- [ ] **Assinar AppX**: Certificado de teste para deploy local
-- [ ] **Deploy**: Instalar em device/emulador Windows 10/11
-- [ ] **Test**: Verificar inicialização do core, carregamento de jogo
-- [ ] **MIDI OSS**: Stub ou implementar `midi_oss.h` compilável no UWP
-- [ ] **Directory enum**: Implementar via `StorageFolder::GetFilesAsync`
-- [ ] **DBPS_* reais**: Implementar `OpenContent`, `AddDisc`, `ToggleOSD`, etc.
+- [ ] **Deploy**: Instalar em device/emulador Windows 10/11, testar performance
+- [ ] **Assinar AppX**: Certificado de teste renovado para deploy local
+- [ ] **ARM64**: Testar build ARM64 (não configurado)
 
 ---
+
+## Change Log
+
+### 2026-07-03 — Phase 2+3: Libretro frontend + D2D video rendering
+
+**O que foi feito:**
+
+1. **RetroCore.cpp/.h** (novo) — bridge libretro completa:
+   - `Init()` → `retro_set_environment`, `retro_set_video_refresh`, `retro_set_audio_sample_batch`,
+     `retro_set_input_poll`, `retro_set_input_state`, `retro_init`
+   - `LoadGame(path, romData)` → passa dados pré-carregados (não tenta reabrir arquivo via UWP),
+     chama `retro_load_game`
+   - `RunFrame()` → `retro_run()`
+   - `retro_env` handler: VFS (v3), SYSTEM/SAVE_DIR (LocalFolder), SET_PIXEL_FORMAT,
+     SET_HW_RENDER (rejeitado), SET_MESSAGE_EXT, SET_KEYBOARD_CALLBACK, GET_THROTTLE_STATE
+   - Thread-safe `retro_video` callback com lock mutex + buffer
+   - `retro_audio` callback com lock mutex
+   - `retro_input_poll` + `retro_input_state` (keyboard/joypad/mouse/pointer)
+
+2. **RetroScreenRenderer.cpp/.h** (novo) — render D2D:
+   - Cria `ID2D1Bitmap1` do framebuffer XRGB8888
+   - `UpdateVideoFrame(data, w, h, pitch)` → copia pixels
+   - `Render()` → `BeginDraw()` → `DrawBitmap()` com letterbox → `EndDraw()`
+
+3. **App.cpp** — picker de ROM via FileOpenPicker (F1):
+   - Filtros: .zip, .dosz, .exe, .com, .bat, .iso, .chd, .cue, .img, .ima, .vhd, .conf
+   - Leitura do arquivo via `FileIO::ReadBufferAsync` dentro da continuation do picker
+   - Dados passados como `std::vector<uint8_t>` para `LoadRom` (evita `.get()`)
+
+4. **dosbox_uwpMain.cpp/.h** — loop principal integrado com core:
+   - `BootCore()` → `retro_init` no startup
+   - `Update()` → `retro_run()` quando core carregado
+   - `Render()` → busca frame de `GrabVideoFrame`, desenha com `RetroScreenRenderer`
+   - Input routing: CoreWindow KeyDown/Up → `RetroCore::SetKeyState`
+
+**Lições Aprendidas (Erros Encontrados & Correções):**
+
+| Erro | Causa | Solução |
+|------|-------|---------|
+| D2D crash: "render outside BeginDraw/EndDraw" | `DrawBitmap` sem `BeginDraw()`/`EndDraw()` | Envolver chamadas no par BeginDraw/EndDraw. `BeginDraw()` retorna `void`. |
+| AccessViolation em `retro_video` com `pitch=0` | Core envia `RETRO_HW_FRAME_BUFFER_VALID` (pitch=0) quando usa HW path | Guard `if (pitch == 0) return` — loga frames rejeitados |
+| Cor distorcida no D2D bitmap | Pixel format `PREMULTIPLIED` assumia alpha premultiplicado | Usar `D2D1_ALPHA_MODE_IGNORE` para XRGB8888 |
+| D2DERR_BITMAP_BOUND_AS_TARGET | DPI do bitmap (96.0f hardcoded) != DPI do render target | Usar `d2dContext->GetDpi()` ao criar bitmap |
+| `Concurrency::invalid_operation` no LoadGame | `.get()` em `create_task(IAsyncOperation^)` da STA thread | Mover leitura do arquivo para continuation (`.then()`). Sem `.get()` |
+| `AccessDeniedException` no `GetFileFromPathAsync` | UWP não pode abrir arquivo por path arbitrário | Usar `StorageFile^` do picker, ler dentro da continuation |
+| Core não inicializava | `RETRO_ENVIRONMENT_SET_HW_RENDER` retornava 1 | Retornar 0 para forçar SW rendering path |
+
+**Plataformas Alvo:**
+- ✅ **x64** — única plataforma suportada. Testado no VS2022 (Windows 11).
+- ❌ **ARM64** — NÃO suportado. Xbox Series é x64, não requer ARM64.
+- ❌ **ARM (32-bit)** — NÃO suportado. Obsoleto, sem hardware alvo.
+- ❌ **x86 (32-bit)** — NÃO suportado. Sem benefício para Xbox Series.
+
+**Comportamento Atual:**
+- ✅ Build 0 errors (Release|x64)
+- ✅ Core inicializa (`retro_init` → `retro_load_game`)
+- ✅ ROM carregada via picker → dados lidos na continuation → passados para core
+- ✅ Frame buffer capturado (`retro_video` → mutex → `GrabVideoFrame`)
+- ✅ D2D bitmap criado com DPI correto, pixel format IGNORE
+- ✅ Render: BeginDraw → DrawBitmap with letterbox → EndDraw
+- ✅ RetroScreenRenderer::Render chamado todo frame
+- ✅ Input keyboard mapeado (alfanumérico + ENTER/ESC/BACK/TAB/SHIFT/CTRL/ALT/SETAS)
+- ❌ Áudio não emitido (SDL QueueAudio alocado mas sem fone UWP)
+- ❌ DBPS_* stubs no-op (OSD, savestates não funcionam)
+- ❌ Xbox Series não testado ainda (deploy pendente)
 
 ## Notas Técnicas
 
 - **UWP SDK** `10.0.26100.0` (VS2022 v143 toolchain)
+- **Plataformas:** somente x64. ARM64, ARM, x86 NÃO suportados (Xbox Series é x64).
 - `CompileAsWinRT=false` para código legado (dosbox-pure) — evita conflitos com WinRT
 - `AppxPackageSigningEnabled=true` — requer certificado para deploy
 - `$(SolutionDir)` necessário no x64 para resolver `uwp-dep.props` (SDL include path)
-- ARM64 build pelo vcxproj direto (uwp-dep.props não se aplica)
 - Submodule `extern/dosbox-pure/` NÃO recebe commits — patches em `local/dosbox-pure/`
 - Qualquer novo arquivo do submodule que precise de modificação: copiar para
   `local/dosbox-pure/` com mesma estrutura, apontar vcxproj

@@ -5,6 +5,8 @@
 #include "Content\Sample3DSceneRenderer.h"
 #include "Content\SampleFpsTextRenderer.h"
 #include "Content\SdlInput.h"
+#include "Content\RetroCore.h"
+#include "Content\RetroScreenRenderer.h"
 
 namespace dosbox_uwp
 {
@@ -20,13 +22,18 @@ namespace dosbox_uwp
         virtual void OnDeviceLost();
         virtual void OnDeviceRestored();
         void OnKeyEvent(Windows::System::VirtualKey key, bool down);
+        void LoadRom(const std::wstring& path, std::vector<uint8_t> romData);
 
     private:
+        void BootCore();
+
         std::shared_ptr<DX::DeviceResources> m_deviceResources;
 
         std::unique_ptr<Sample3DSceneRenderer> m_sceneRenderer;
         std::unique_ptr<SampleFpsTextRenderer> m_fpsTextRenderer;
         std::unique_ptr<SdlInput> m_sdlInput;
+        std::unique_ptr<RetroCore> m_retroCore;
+        std::unique_ptr<RetroScreenRenderer> m_retroScreen;
 
         DX::StepTimer m_timer;
 
@@ -36,5 +43,9 @@ namespace dosbox_uwp
         bool m_hasController;
         std::wstring m_eventText;
         int m_eventTimer;
+
+        bool m_retroRunning = false;
+        std::wstring m_statusText;
+        int m_statusTimer = 0;
     };
 }
