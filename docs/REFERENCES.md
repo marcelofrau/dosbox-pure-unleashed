@@ -132,17 +132,20 @@ Cmd keys que o core do DOSBox Pure usa (identificadas no `main.cpp` do unleashed
 
 | CMD | Nosso handler |
 |-----|---------------|
-| `GET_VFS_INTERFACE` | ✅ Entregar nossa VFS |
+| `GET_VFS_INTERFACE` | ✅ Entregar nossa VFS (v3) |
 | `GET_VARIABLE` | ✅ Responder config defaults |
 | `SET_VARIABLE` | ✅ Aceitar |
 | `GET_SYSTEM_DIRECTORY` | ✅ `LocalFolder` |
 | `GET_SAVE_DIRECTORY` | ✅ `LocalFolder` |
-| `GET_PREFERRED_HW_RENDER` | ✅ Retornar false (força SW render) |
-| `SET_HW_RENDER` | ❌ Não implementar (não vamos usar HW render) |
+| `SET_HW_RENDER` | ✅ Retornar 0 (rejeitar HW, forçar SW) |
+| `SET_KEYBOARD_CALLBACK` | ✅ Push held key states |
+| `SET_MESSAGE_EXT` | ✅ Log via OutputDebugStringA |
+| `GET_THROTTLE_STATE` | ✅ RETRO_THROTTLE_NONE |
 | `SET_NETPACKET_INTERFACE` | ⏳ Futuro (netplay) |
 | `GET_USERNAME` | ☑️ Opcional |
 | `GET_LANGUAGE` | ☑️ Opcional |
 | `SET_FRAME_TIME_CALLBACK` | ☑️ Opcional |
+| `SHUTDOWN` | ✅ Aceitar (logar) |
 
 ### VFS Interface struct
 ```c
@@ -236,9 +239,121 @@ __LIBRETRO__;DBP_STANDALONE;_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_DEPRECATE
 
 ---
 
-## Limpeza
+## Erros Encontrados & Correções (Phase 2-3)
 
-Diretórios temporários criados durante a pesquisa que podem ser removidos:
-- `F:\workspace\vs2022\_tmp_unleashed`
-- `F:\workspace\vs2022\_tmp_retroarch`
-- `F:\workspace\vs2022\_tmp_retroarch_xbox`
+### 1. D2D: BeginDraw/EndDraw obrigatório
+**Sintoma:** Crash no debug layer: `"An attempt to render a primitive outside of BeginDraw/EndDraw"`
+**Causa:** `ID2D1RenderTarget::DrawBitmap()` chamado sem `BeginDraw()` antes.
+**Solução:** Envolver toda renderização em `BeginDraw()`/`EndDraw()`. `BeginDraw()` retorna `void`.
+**Referência:** `dosbox-uwp/Content/RetroScreenRenderer.cpp:82`
+
+### 2. Framebuffer vazio (pitch = 0) = HW frame
+**Sintoma:** `memcpy` com tamanho 0 crasha (access violation)
+**Causa:** Core envia `retro_video_cb(RETRO_HW_FRAME_BUFFER_VALID, w, h, 0)` quando usa HW path.
+  `RETRO_HW_FRAME_BUFFER_VALID` é `(void*)~0` ≈ 0xFFFFFFFFFFFFFFFF; `pitch = 0` sinaliza "frame HW".
+**Solução:** Guard `if (pitch == 0) return` — loga e descarta frames HW.
+**Referência:** `dosbox-uwp/Content/RetroCore.cpp:354-368`
+
+### 3. Cores distorcidas no D2D bitmap
+**Sintoma:** Cores erradas (ex: vermelho vira laranja, azul vira roxo)
+**Causa:** `D2D1_ALPHA_MODE_PREMULTIPLIED` assume alpha premultiplicado. Framebuffer XRGB8888 é raw.
+**Solução:** Usar `D2D1_ALPHA_MODE_IGNORE` ao criar bitmap.
+**Referência:** `dosbox-uwp/Content/RetroScreenRenderer.cpp:130-138`
+
+### 4. D2DERR_BITMAP_BOUND_AS_TARGET em high-DPI
+**Sintoma:** Erro D2D ao criar bitmap, ou render artifacts
+**Causa:** DPI do bitmap (hardcoded 96.0f) != DPI real do render target
+**Solução:** Usar `d2dContext->GetDpi(&dpiX, &dpiY)` e passar valores no `D2D1_BITMAP_PROPERTIES1`.
+**Referência:** `dosbox-uwp/Content/RetroScreenRenderer.cpp:148`
+
+### 5. STA thread: .get() em WinRT async
+**Sintoma:** `Concurrency::invalid_operation`: "Illegal to wait on a task in a Windows Runtime STA"
+**Causa:** `concurrency::create_task(Windows::Storage::FileIO::ReadBufferAsync(file)).get()` da STA thread.
+  UWP STA não permite bloquear (`.get()`) em async operations WinRT.
+**Solução:** Usar continuation chaining (`.then()`) sem `.get()`. Ou fire-and-forget.
+**Referência:** `dosbox-uwp/App.cpp:215-236`
+
+### 6. AccessDenied ao reabrir arquivo por path
+**Sintoma:** `Platform::AccessDeniedException` (HRESULT 0x80070005)
+**Causa:** `StorageFile::GetFileFromPathAsync(arbitraryPath)` falha — UWP não pode abrir
+  arquivo por caminho arbitrário (sandbox).
+**Solução:** Ler o arquivo na continuation do `FileOpenPicker` usando `FileIO::ReadBufferAsync(file)`,
+  onde `file` é o `StorageFile^` retornado pelo picker (carrega direitos de acesso).
+  Passar dados como `std::vector<uint8_t>` para `LoadGame`.
+**Referência:** `dosbox-uwp/App.cpp:215-236`, `dosbox-uwp/Content/RetroCore.cpp:80-120`
+
+### 7. SET_HW_RENDER retornar 1 causa GL crash
+**Sintoma:** Core tenta usar OpenGL paths e crasha (sem contexto GL)
+**Causa:** `DBP_STANDALONE` faz core tentar HW render primeiro. Se `SET_HW_RENDER` retorna 1,
+  core assume que frontend suporta HW e usa GL framebuffer.
+**Solução:** Retornar 0 em `retro_env` para `RETRO_ENVIRONMENT_SET_HW_RENDER`. Core faz fallback
+  automático para SW path.
+**Referência:** `dosbox-uwp/Content/RetroCore.cpp:308-311`
+
+### 8. DPI mismatch entre C++/CX e D2D
+**Sintoma:** `ID2D1DeviceContext` reporta DPI diferente do esperado
+**Causa:** O DPI pode ser 96 (100%) em um monitor, 144 (150%) em outro, ou valor diferente
+  do DisplayInformation::LogicalDpi.
+**Solução:** Sempre consultar `d2dContext->GetDpi()` ao criar bitmaps. Nunca hardcodar.
+**Referência:** `dosbox-uwp/Content/RetroScreenRenderer.cpp:148`
+
+---
+
+## D2D Findings
+
+### Direct2D vs Direct3D para video output
+**Decisão:** Usamos Direct2D (não Direct3D) para renderizar o framebuffer do core.
+
+**Motivos:**
+- `ID2D1Bitmap1::CopyFromMemory()` aceita XRGB8888 raw diretamente
+- `DrawBitmap()` com `D2D1_INTERPOLATION_MODE_LINEAR` escala automaticamente
+- Não precisa de vertex/pixel shaders, não precisa de `D3D11_USAGE_DYNAMIC`/`Map()`/`Unmap()`
+- Letterbox via `D2D1_RECT_F` source/dest rectangles
+- O scaffold UWP já cria `ID2D1DeviceContext` (via `CreateD2DDeviceContext()`)
+
+**Pipeline D2D:**
+1. Criar `ID2D1Bitmap1` com `D2D1_BITMAP_PROPERTIES1`:
+   - `pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM`
+   - `pixelFormat.alphaMode = D2D1_ALPHA_MODE_IGNORE`
+   - `dpiX = dpiY` do `GetDpi()` do context
+   - `bitmapOptions = D2D1_BITMAP_OPTIONS_NONE`
+2. `UpdateVideoFrame()`: `bitmap->CopyFromMemory(nullptr, data, pitch)`
+3. `Render()`: `BeginDraw()` → `DrawBitmap()` com letterbox → `EndDraw()`
+
+**Cuidados:**
+- `BeginDraw()` retorna `void`, `EndDraw()` retorna `HRESULT`
+- DPI do bitmap DEVE bater com DPI do render target
+- Pixel format `IGNORE` (não `PREMULTIPLIED`) para XRGB8888
+
+---
+
+## UWP Async Findings
+
+### WinRT STA não permite .get()
+**Regra:** `concurrency::create_task(WinRT IAsyncOperation^).get()` da STA thread (UI thread)
+lança `Concurrency::invalid_operation` com mensagem "Illegal to wait on a task in a Windows Runtime STA".
+
+**Por quê:** UWP STA usa `CoreDispatcher` para processar mensagens. `.get()` bloquearia a thread
+impedindo o dispatcher de processar a conclusão do async operation. Deadlock potencial.
+
+**Como contornar:**
+1. **Continuation chaining:**
+   ```cpp
+   create_task(picker->PickSingleFileAsync())
+       .then([](StorageFile^ file) {
+           if (file != nullptr) {
+               create_task(FileIO::ReadBufferAsync(file))
+                   .then([](IBuffer^ buffer) {
+                       // process buffer
+                   });
+           }
+       });
+   ```
+2. **Fire-and-forget:** retornar `void` do lambda, não esperar resultado
+3. **NUNCA** chamar `.get()` em `IAsyncOperation<T>` da STA
+
+### UWP file access limitations
+**Acesso direto:** UWP NÃO pode acessar paths arbitrários via `fopen` ou `GetFileFromPathAsync`.
+**Solução:** Sempre usar o `StorageFile^` de um `FileOpenPicker` (que carrega direitos).
+**Leitura:** `FileIO::ReadBufferAsync(file)` → `DataReader::FromBuffer(buffer)` → `ReadBytes()`.
+**Dados:** Copiados para `std::vector<uint8_t>` e passados para `retro_game_info.data`/`size`.
