@@ -186,16 +186,24 @@ void SdlInput::PollEvents()
         }
     }
 
-    // For controllers: also poll current state each frame (handles missed events)
+    // Poll current button state as safety net for missed SDL events
     if (m_controller)
     {
-        bool aHeld = SDL_GameControllerGetButton(m_controller, SDL_CONTROLLER_BUTTON_A) != 0;
-        if (aHeld && !m_buttonHeld[BUTTON_A])
+        struct { SDL_GameControllerButton sdl; int local; } map[] = {
+            { SDL_CONTROLLER_BUTTON_A, BUTTON_A },
+            { SDL_CONTROLLER_BUTTON_B, BUTTON_B },
+            { SDL_CONTROLLER_BUTTON_X, BUTTON_X },
+            { SDL_CONTROLLER_BUTTON_Y, BUTTON_Y },
+            { SDL_CONTROLLER_BUTTON_RIGHTSTICK, BUTTON_R3 },
+            { SDL_CONTROLLER_BUTTON_BACK, BUTTON_SELECT },
+        };
+        for (auto& m : map)
         {
-            m_buttonHeld[BUTTON_A] = true;
-            m_buttonJustPressed[BUTTON_A] = true;
+            bool held = SDL_GameControllerGetButton(m_controller, m.sdl) != 0;
+            if (held && !m_buttonHeld[m.local])
+                m_buttonJustPressed[m.local] = true;
+            m_buttonHeld[m.local] = held;
         }
-        m_buttonHeld[BUTTON_A] = aHeld;
     }
 
     // UWP Gamepad API: works on Xbox where SDL joystick API is unavailable
@@ -238,19 +246,31 @@ void SdlInput::PollUwpGamepad()
     if (m_uwpGamepad)
     {
         auto reading = m_uwpGamepad->GetCurrentReading();
-        bool aHeld = (reading.Buttons & GamepadButtons::A) != GamepadButtons::None;
 
-        if (aHeld && !m_buttonHeld[BUTTON_A])
+        struct { GamepadButtons flag; int btn; const char* name; } map[] = {
+            { GamepadButtons::A, BUTTON_A, "A" },
+            { GamepadButtons::B, BUTTON_B, "B" },
+            { GamepadButtons::X, BUTTON_X, "X" },
+            { GamepadButtons::Y, BUTTON_Y, "Y" },
+            { GamepadButtons::RightThumbstick, BUTTON_R3, "R3" },
+            { GamepadButtons::View, BUTTON_SELECT, "Select" },
+        };
+
+        for (auto& m : map)
         {
-            m_buttonHeld[BUTTON_A] = true;
-            m_buttonJustPressed[BUTTON_A] = true;
-            sprintf_s(m_lastEventStr, "UWP:A DOWN");
+            bool held = (reading.Buttons & m.flag) != GamepadButtons::None;
+            if (held && !m_buttonHeld[m.btn])
+            {
+                m_buttonHeld[m.btn] = true;
+                m_buttonJustPressed[m.btn] = true;
+                sprintf_s(m_lastEventStr, "UWP:%s DOWN", m.name);
+            }
+            else if (!held && m_buttonHeld[m.btn])
+            {
+                m_buttonHeld[m.btn] = false;
+                sprintf_s(m_lastEventStr, "UWP:%s UP", m.name);
+            }
         }
-        else if (!aHeld && m_buttonHeld[BUTTON_A])
-        {
-            sprintf_s(m_lastEventStr, "UWP:A UP");
-        }
-        m_buttonHeld[BUTTON_A] = aHeld;
     }
 }
 

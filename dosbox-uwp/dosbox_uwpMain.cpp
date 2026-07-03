@@ -13,8 +13,7 @@ using namespace Concurrency;
 dosbox_uwpMain::dosbox_uwpMain(const std::shared_ptr<DX::DeviceResources>& deviceResources)
     : m_deviceResources(deviceResources)
     , m_clearColor(DirectX::Colors::CornflowerBlue)
-    , m_clearTimer(0.0f)
-    , m_lastButton(-1)
+    , m_defaultClearColor(DirectX::Colors::CornflowerBlue)
     , m_hasController(false)
     , m_eventText(L"")
     , m_eventTimer(0)
@@ -101,6 +100,28 @@ void dosbox_uwpMain::Update()
     m_timer.Tick([&]()
     {
         m_sdlInput->PollEvents();
+
+        if (m_spaceHeld) {
+            m_clearColor = DirectX::Colors::Orange;
+        } else if (m_sdlInput->IsButtonHeld(BUTTON_Y)) {
+            m_clearColor = DirectX::Colors::Gold;
+        } else if (m_sdlInput->IsButtonHeld(BUTTON_X)) {
+            m_clearColor = DirectX::Colors::RoyalBlue;
+        } else if (m_sdlInput->IsButtonHeld(BUTTON_B)) {
+            m_clearColor = DirectX::Colors::Crimson;
+        } else if (m_sdlInput->IsButtonHeld(BUTTON_A)) {
+            m_clearColor = DirectX::Colors::ForestGreen;
+        } else {
+            m_clearColor = m_defaultClearColor;
+        }
+
+        if (m_sdlInput->WasButtonJustPressed(BUTTON_R3) || m_sdlInput->WasButtonJustPressed(BUTTON_SELECT)) {
+            m_requestFilePicker = true;
+            if (m_sdlInput->WasButtonJustPressed(BUTTON_R3))
+                OutputDebugStringA("[dosbox-uwp] R3 -> file picker\n");
+            else
+                OutputDebugStringA("[dosbox-uwp] Select -> file picker\n");
+        }
 
         if (m_retroRunning && m_retroCore->IsLoaded())
         {
@@ -204,6 +225,7 @@ void dosbox_uwpMain::OnKeyEvent(Windows::System::VirtualKey key, bool down)
 {
     if (key == Windows::System::VirtualKey::Space)
     {
+        m_spaceHeld = down;
         m_sdlInput->SetKeyboardButton(BUTTON_A, down);
         if (down) m_sdlInput->PlayBeep(880.0f, 0.15f, 0.5f);
     }

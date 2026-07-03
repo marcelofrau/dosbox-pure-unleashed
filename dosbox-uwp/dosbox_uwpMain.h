@@ -23,6 +23,7 @@ namespace dosbox_uwp
         virtual void OnDeviceRestored();
         void OnKeyEvent(Windows::System::VirtualKey key, bool down);
         void LoadRom(const std::wstring& path, std::vector<uint8_t> romData);
+        bool WasFilePickerRequested() { bool r = m_requestFilePicker; m_requestFilePicker = false; return r; }
 
     private:
         void BootCore();
@@ -38,9 +39,11 @@ namespace dosbox_uwp
         DX::StepTimer m_timer;
 
         DirectX::XMVECTORF32 m_clearColor;
-        float m_clearTimer;
-        int m_lastButton;
+        DirectX::XMVECTORF32 m_defaultClearColor;
+        bool m_requestFilePicker = false;
+        bool m_spaceHeld = false;
         bool m_hasController;
+
         std::wstring m_eventText;
         int m_eventTimer;
 

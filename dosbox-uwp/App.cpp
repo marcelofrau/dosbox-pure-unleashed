@@ -112,6 +112,10 @@ void App::Run()
 
 			m_main->Update();
 
+			if (m_main->WasFilePickerRequested()) {
+				OpenFilePicker();
+			}
+
 			if (m_main->Render())
 			{
 				m_deviceResources->Present();
@@ -186,6 +190,57 @@ void App::OnWindowClosed(CoreWindow^ sender, CoreWindowEventArgs^ args)
 	m_windowClosed = true;
 }
 
+void App::OpenFilePicker()
+{
+	auto picker = ref new Windows::Storage::Pickers::FileOpenPicker();
+	picker->ViewMode = Windows::Storage::Pickers::PickerViewMode::List;
+	picker->FileTypeFilter->Append(".zip");
+	picker->FileTypeFilter->Append(".dosz");
+	picker->FileTypeFilter->Append(".exe");
+	picker->FileTypeFilter->Append(".com");
+	picker->FileTypeFilter->Append(".bat");
+	picker->FileTypeFilter->Append(".iso");
+	picker->FileTypeFilter->Append(".chd");
+	picker->FileTypeFilter->Append(".cue");
+	picker->FileTypeFilter->Append(".img");
+	picker->FileTypeFilter->Append(".ima");
+	picker->FileTypeFilter->Append(".vhd");
+	picker->FileTypeFilter->Append(".conf");
+
+	create_task(picker->PickSingleFileAsync()).then([this](Windows::Storage::StorageFile^ file)
+	{
+		if (file != nullptr)
+		{
+			char buf[512];
+			int len = WideCharToMultiByte(CP_UTF8, 0, file->Path->Data(), -1, nullptr, 0, nullptr, nullptr);
+			std::string pathUtf8(len, '\0');
+			WideCharToMultiByte(CP_UTF8, 0, file->Path->Data(), -1, &pathUtf8[0], len, nullptr, nullptr);
+			sprintf_s(buf, "[dosbox-uwp] File picker: %s\n", pathUtf8.c_str());
+			OutputDebugStringA(buf);
+
+			std::wstring path = file->Path->Data();
+			create_task(Windows::Storage::FileIO::ReadBufferAsync(file)).then([this, path](Windows::Storage::Streams::IBuffer^ buffer)
+			{
+				if (buffer != nullptr && buffer->Length > 0)
+				{
+					auto dataReader = Windows::Storage::Streams::DataReader::FromBuffer(buffer);
+					std::vector<uint8_t> romData(buffer->Length);
+					dataReader->ReadBytes(Platform::ArrayReference<uint8_t>(romData.data(), (unsigned)buffer->Length));
+					m_main->LoadRom(path, std::move(romData));
+				}
+				else
+				{
+					OutputDebugStringA("[dosbox-uwp] File read failed or empty\n");
+				}
+			});
+		}
+		else
+		{
+			OutputDebugStringA("[dosbox-uwp] Picker cancelled\n");
+		}
+	});
+}
+
 void App::OnKeyDown(CoreWindow^ sender, KeyEventArgs^ args)
 {
 	auto key = args->VirtualKey;
@@ -193,54 +248,7 @@ void App::OnKeyDown(CoreWindow^ sender, KeyEventArgs^ args)
 	if (key == VirtualKey::F1)
 	{
 		args->Handled = true;
-
-		auto picker = ref new Windows::Storage::Pickers::FileOpenPicker();
-		picker->ViewMode = Windows::Storage::Pickers::PickerViewMode::List;
-		picker->FileTypeFilter->Append(".zip");
-		picker->FileTypeFilter->Append(".dosz");
-		picker->FileTypeFilter->Append(".exe");
-		picker->FileTypeFilter->Append(".com");
-		picker->FileTypeFilter->Append(".bat");
-		picker->FileTypeFilter->Append(".iso");
-		picker->FileTypeFilter->Append(".chd");
-		picker->FileTypeFilter->Append(".cue");
-		picker->FileTypeFilter->Append(".img");
-		picker->FileTypeFilter->Append(".ima");
-		picker->FileTypeFilter->Append(".vhd");
-		picker->FileTypeFilter->Append(".conf");
-
-		create_task(picker->PickSingleFileAsync()).then([this](Windows::Storage::StorageFile^ file)
-		{
-			if (file != nullptr)
-			{
-				char buf[512];
-				int len = WideCharToMultiByte(CP_UTF8, 0, file->Path->Data(), -1, nullptr, 0, nullptr, nullptr);
-				std::string pathUtf8(len, '\0');
-				WideCharToMultiByte(CP_UTF8, 0, file->Path->Data(), -1, &pathUtf8[0], len, nullptr, nullptr);
-				sprintf_s(buf, "[dosbox-uwp] F1 picked file: %s\n", pathUtf8.c_str());
-				OutputDebugStringA(buf);
-
-				std::wstring path = file->Path->Data();
-				create_task(Windows::Storage::FileIO::ReadBufferAsync(file)).then([this, path](Windows::Storage::Streams::IBuffer^ buffer)
-				{
-					if (buffer != nullptr && buffer->Length > 0)
-					{
-						auto dataReader = Windows::Storage::Streams::DataReader::FromBuffer(buffer);
-						std::vector<uint8_t> romData(buffer->Length);
-						dataReader->ReadBytes(Platform::ArrayReference<uint8_t>(romData.data(), (unsigned)buffer->Length));
-						m_main->LoadRom(path, std::move(romData));
-					}
-					else
-					{
-						OutputDebugStringA("[dosbox-uwp] F1 file read failed or empty\n");
-					}
-				});
-			}
-			else
-			{
-				OutputDebugStringA("[dosbox-uwp] F1 picker cancelled\n");
-			}
-		});
+		OpenFilePicker();
 		return;
 	}
 

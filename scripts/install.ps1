@@ -9,10 +9,23 @@ $pkgName = '81ef2129-2f08-4d22-9816-050b2b62b308'
 
 $pkgDir = Join-Path $root "AppPackages\dosbox-uwp\dosbox-uwp_1.0.0.0_${Platform}_${Configuration}_Test"
 $msix = Join-Path $pkgDir "dosbox-uwp_1.0.0.0_${Platform}_${Configuration}.msix"
+$extractDir = Join-Path $pkgDir "extracted"
 
 if (-not (Test-Path $msix)) {
     Write-Error "Package not found at $msix. Build first."
     exit 1
+}
+
+# Trust the code-signing cert — needed for runtime trust
+$cerPath = Join-Path $root "certs\dosbox-uwp.cer"
+$certThumbprint = 'F968DA788741D89E236A777BA5E7B8BDBC7429CB'
+foreach ($store in @('Root', 'TrustedPeople')) {
+    $certStore = "Cert:\CurrentUser\$store"
+    $existing = Get-ChildItem $certStore -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $certThumbprint }
+    if (-not $existing -and (Test-Path $cerPath)) {
+        Write-Host "Installing cert to CurrentUser\$store..." -ForegroundColor Cyan
+        Import-Certificate -FilePath $cerPath -CertStoreLocation $certStore -ErrorAction Stop | Out-Null
+    }
 }
 
 Write-Host "Uninstalling old package (if any)..." -ForegroundColor Cyan
@@ -22,6 +35,15 @@ if ($pkg) {
     Write-Host "  Removed: $($pkg.PackageFullName)" -ForegroundColor DarkGray
 }
 
-Write-Host "Installing $msix ..." -ForegroundColor Cyan
-Add-AppxPackage -Path $msix -ErrorAction Stop
+# Extract MSIX and register from unpacked dir.
+# Add-AppxPackage on the .msix directly fails with 0x800B0109 cert trust
+# even when cert is in Root + TrustedPeople (Windows 11 bug?).
+# -Register bypasses the cert signature check.
+Write-Host "Installing $msix (extract + register)..." -ForegroundColor Cyan
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\MakeAppx.exe" unpack /p $msix /d $extractDir /o 2>&1 | Out-Null
+if (-not (Test-Path (Join-Path $extractDir "AppxManifest.xml"))) {
+    Write-Error "Extract failed — AppxManifest.xml not found."
+    exit 1
+}
+Add-AppxPackage -Register (Join-Path $extractDir "AppxManifest.xml") -ErrorAction Stop
 Write-Host "Install done." -ForegroundColor Green

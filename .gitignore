@@ -51,6 +51,9 @@ vs.appxrecipe
 # App packages (build output)
 AppPackages/
 
+# Env (local credentials)
+.env
+
 # NuGet
 packages/
 *.nupkg
