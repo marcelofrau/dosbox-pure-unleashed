@@ -85,6 +85,11 @@ void App::SetWindow(CoreWindow^ window)
 		ref new TypedEventHandler<DisplayInformation^, Object^>(this, &App::OnDisplayContentsInvalidated);
 
 	m_deviceResources->SetWindow(window);
+
+	SystemNavigationManager^ nav = SystemNavigationManager::GetForCurrentView();
+	nav->BackRequested +=
+		ref new EventHandler<BackRequestedEventArgs^>(this, &App::OnBackRequested);
+
 	OutputDebugStringA("[dosbox-uwp] App::SetWindow done\n");
 }
 
@@ -239,6 +244,12 @@ void App::OpenFilePicker()
 			OutputDebugStringA("[dosbox-uwp] Picker cancelled\n");
 		}
 	});
+}
+
+void App::OnBackRequested(Platform::Object^ sender, Windows::UI::Core::BackRequestedEventArgs^ args)
+{
+	OutputDebugStringA("[dosbox-uwp] BackRequested — suppressed\n");
+	args->Handled = true;
 }
 
 void App::OnKeyDown(CoreWindow^ sender, KeyEventArgs^ args)
